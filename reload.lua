@@ -16,6 +16,8 @@
 --
 -- ```
 -- # enable automatic reload on timeout
+-- # when paused-for-cache event fired, we will wait for
+-- # paused_for_cache_timer_timeout and reload the video
 -- paused_for_cache_timer_enabled=yes
 --
 -- # checking paused_for_cache property interval in seconds,
@@ -24,6 +26,19 @@
 --
 -- # time in seconds to wait until reload
 -- paused_for_cache_timer_timeout=10
+--
+-- # enable automatic reload based on demuxer cache
+-- # if demuxer-cache-time property didn't change in demuxer_cache_timer_timeout
+-- # time interval, the video will be reloaded as soon as demuxer cache depleated
+-- demuxer_cache_timer_enabled=yes
+--
+-- # checking demuxer-cache-time property interval in seconds,
+-- # can not be less than 0.05 (50 ms)
+-- demuxer_cache_timer_interval=2
+--
+-- # time window in seconds when demuxer-cache-time should show any progress
+-- # until we decide that it has no progress
+-- demuxer_cache_timer_timeout=20
 --
 -- # when the end-of-file is reached, reload the stream to check
 -- # if there is more content available.
@@ -49,8 +64,18 @@ local settings = {
   paused_for_cache_timer_enabled = true,
   paused_for_cache_timer_interval = 1,
   paused_for_cache_timer_timeout = 10,
+  demuxer_cache_timer_enabled = true,
+  demuxer_cache_timer_interval = 2,
+  demuxer_cache_timer_timeout = 20,
   reload_eof_enabled = false,
   reload_key_binding = "Ctrl+r",
+}
+
+local demuxer_cache = {
+  timer = nil,
+  time = 0,
+  has_progress = true,
+  no_progress_time = 0,
 }
 
 -- global state stores properties between reloads
@@ -108,8 +133,9 @@ end
 function reload_eof(property, eof_reached)
   msg.debug("reload_eof", property, eof_reached)
   local time_pos = mp.get_property_number("time-pos")
+  local duration = mp.get_property_number("duration")
 
-  if eof_reached then
+  if eof_reached and math.floor(time_pos) == math.floor(duration) then
     msg.debug("property_time_pos", property_time_pos, "time_pos", time_pos)
 
     -- Check that playback time_pos made progress after the last reload. When
@@ -153,6 +179,11 @@ end
 
 function paused_for_cache_handler(property, is_paused)
   if is_paused then
+    if not demuxer_cache.has_progress then
+      msg.info("demuxer cache has no progress")
+      reload_resume()
+    end
+
     if not paused_for_cache_timer then
       start_timer(
         settings.paused_for_cache_timer_interval,
@@ -177,6 +208,29 @@ if settings.paused_for_cache_timer_enabled then
   mp.observe_property("paused-for-cache", "bool", paused_for_cache_handler)
 end
 
+if settings.demuxer_cache_timer_enabled then
+  -- if there is no progress of demuxer-cache-time in settings.demuxer_cache_time_duration
+  -- set demuxer_cache.has_progress = false and
+  -- set back to true as soon as any progress is made
+  demuxer_cache.timer = mp.add_periodic_timer(
+    settings.demuxer_cache_timer_interval,
+    function()
+      demuxer_cache_time = mp.get_property_native("demuxer-cache-time")
+      demuxer_has_progress = demuxer_cache.time ~= demuxer_cache_time
+      demuxer_cache.time = demuxer_cache_time
+
+      if not demuxer_has_progress then
+        demuxer_cache.no_progress_time = demuxer_cache.no_progress_time + settings.demuxer_cache_timer_interval
+      else
+        demuxer_cache.no_progress_time = 0
+      end
+
+      demuxer_cache.has_progress = demuxer_cache.no_progress_time < settings.demuxer_cache_timer_timeout
+
+      msg.debug("demuxer_cache", utils.to_string(demuxer_cache))
+    end)
+end
+
 if settings.reload_eof_enabled then
   -- vo-configured == video output created && its configuration went ok
   mp.observe_property(
@@ -188,6 +242,7 @@ if settings.reload_eof_enabled then
         property_path = mp.get_property("path")
         property_keep_open = mp.get_property("keep-open")
         mp.set_property("keep-open", "yes")
+        mp.set_property("keep-open-pause", "no")
       end
     end)
 
