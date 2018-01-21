@@ -26,6 +26,8 @@ Default `reload.conf` settings:
 
 ```
 # enable automatic reload on timeout
+# when paused-for-cache event fired, we will wait for
+# paused_for_cache_timer_timeout and reload the video
 paused_for_cache_timer_enabled=yes
 
 # checking paused_for_cache property interval in seconds,
@@ -34,6 +36,19 @@ paused_for_cache_timer_interval=1
 
 # time in seconds to wait until reload
 paused_for_cache_timer_timeout=10
+
+# enable automatic reload based on demuxer cache
+# if demuxer-cache-time property didn't change in demuxer_cache_timer_timeout
+# time interval, the video will be reloaded as soon as demuxer cache depleated
+demuxer_cache_timer_enabled=yes
+
+# checking demuxer-cache-time property interval in seconds,
+# can not be less than 0.05 (50 ms)
+demuxer_cache_timer_interval=2
+
+# time window in seconds when demuxer-cache-time should show any progress
+# until we decide that it has no progress
+demuxer_cache_timer_timeout=20
 
 # when the end-of-file is reached, reload the stream to check
 # if there is more content available.
