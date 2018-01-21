@@ -7,16 +7,20 @@ position. It also adds `Ctrl+r` keybinding to reload video manually.
 
 ## Install
 
-Mpv reads its configuration from `MPV_HOME` directory. On Unix systems it is
+Mpv reads its configuration from `MPV_HOME` directory. On Unix it is
 `~/.config/mpv`, see [files](https://mpv.io/manual/stable/#files) section of
 the manual for the Windows configuration files.
 
 To install the script, copy `reload.lua` to the `MPV_HOME/scripts` directory.
-
 To override default settings, create `reload.conf` file in the lua-settings
 directory `MPV_HOME/lua-settings`.
 
 NOTE: config file name should match the name of the script.
+
+For configuration example you can also check
+[4e6/dotfiles](https://github.com/4e6/dotfiles/tree/master/.config/mpv) repo.
+
+## Settings
 
 Default `reload.conf` settings:
 
