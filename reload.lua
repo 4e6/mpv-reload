@@ -16,8 +16,8 @@
 --
 -- ```
 -- # enable automatic reload on timeout
--- # when paused-for-cache event fired, we will wait for
--- # paused_for_cache_timer_timeout and reload the video
+-- # when paused-for-cache event fired, we will wait
+-- # paused_for_cache_timer_timeout sedonds and then reload the video
 -- paused_for_cache_timer_enabled=yes
 --
 -- # checking paused_for_cache property interval in seconds,
@@ -36,8 +36,9 @@
 -- # can not be less than 0.05 (50 ms)
 -- demuxer_cache_timer_interval=2
 --
--- # time window in seconds when demuxer-cache-time should show any progress
--- # until we decide that it has no progress
+-- # if demuxer cache didn't receive any data during demuxer_cache_timer_timeout
+-- # we decide that it has no progress and will reload the stream when
+-- # paused_for_cache event happens
 -- demuxer_cache_timer_timeout=20
 --
 -- # when the end-of-file is reached, reload the stream to check
@@ -181,6 +182,9 @@ function paused_for_cache_handler(property, is_paused)
   if is_paused then
     if not demuxer_cache.has_progress then
       msg.info("demuxer cache has no progress")
+      -- reset demuxer_cache timer to avoid immediate reload if
+      -- paused_for_cache event triggered right after reload
+      demuxer_cache.has_progress = true
       reload_resume()
     end
 
