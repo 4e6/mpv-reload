@@ -117,6 +117,12 @@ function reload_resume()
   local time_pos = mp.get_property("time-pos")
   local reload_duration = mp.get_property_native("duration")
 
+  local playlist_count = mp.get_property_number("playlist/count")
+  local playlist_pos = mp.get_property_number("playlist-pos")
+  local playlist = {}
+  for i = 0, playlist_count-1 do
+      playlist[i] = mp.get_property("playlist/" .. i .. "/filename")
+  end
   -- Tries to determine live stream vs. pre-recordered VOD. VOD has non-zero
   -- duration property. When reloading VOD, to keep the current time position
   -- we should provide offset from the start. Stream doesn't have fixed start.
@@ -128,6 +134,14 @@ function reload_resume()
   else
     msg.info("reloading stream")
     reload(path, nil)
+  end
+  msg.info("file ", playlist_pos+1, " of ", playlist_count, "in playlist")
+  for i = 0, playlist_pos-1 do
+    mp.commandv("loadfile", playlist[i], "append")
+  end
+  mp.commandv("playlist-move", 0, playlist_pos+1)
+  for i = playlist_pos+1, playlist_count-1 do
+    mp.commandv("loadfile", playlist[i], "append")
   end
 end
 
