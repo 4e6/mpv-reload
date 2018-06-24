@@ -72,6 +72,10 @@ local settings = {
   reload_key_binding = "Ctrl+r",
 }
 
+-- global state stores properties between reloads
+local property_path = nil
+local property_time_pos = 0
+local property_keep_open = nil
 
 -- FSM managing the demuxer cache.
 --
@@ -218,12 +222,56 @@ function demuxer_cache.demuxer_cache_timer_tick(demuxer_cache_time, demuxer_cach
   demuxer_cache.transition(event)
 end
 
--- global state stores properties between reloads
-local paused_for_cache_seconds = 0
-local paused_for_cache_timer = nil
-local property_path = nil
-local property_time_pos = 0
-local property_keep_open = nil
+
+local paused_for_cache = {
+  timer = nil,
+  time = 0,
+}
+
+function paused_for_cache.reset_timer()
+  msg.debug('paused_for_cache.reset_timer', paused_for_cache.time)
+  if paused_for_cache.timer then
+    paused_for_cache.timer:kill()
+    paused_for_cache.timer = nil
+    paused_for_cache.time = 0
+  end
+end
+
+function paused_for_cache.start_timer(interval_seconds, timeout_seconds)
+  msg.debug('paused_for_cache.start_timer', paused_for_cache.time)
+  if not paused_for_cache.timer then
+    paused_for_cache.timer = mp.add_periodic_timer(
+      interval_seconds,
+      function()
+        paused_for_cache.time = paused_for_cache.time + interval_seconds
+        if paused_for_cache.time >= timeout_seconds then
+          paused_for_cache.reset_timer()
+          reload_resume()
+        end
+        msg.debug('paused_for_cache', 'tick', paused_for_cache.time)
+      end
+    )
+  end
+end
+
+function paused_for_cache.handler(property, is_paused)
+  if is_paused then
+
+    if demuxer_cache.is_state_stuck() then
+      msg.info("demuxer cache has no progress")
+      -- reset demuxer state to avoid immediate reload if
+      -- paused_for_cache event triggered right after reload
+      demuxer_cache.reset_state()
+      reload_resume()
+    end
+
+    paused_for_cache.start_timer(
+      settings.paused_for_cache_timer_interval,
+      settings.paused_for_cache_timer_timeout)
+  else
+    paused_for_cache.reset_timer()
+  end
+end
 
 function read_settings()
   options.read_options(settings, mp.get_script_name())
@@ -309,52 +357,6 @@ function reload_eof(property, eof_reached)
   end
 end
 
-function reset_timer()
-  msg.debug("reset_timer; paused_for_cache_seconds =", paused_for_cache_seconds)
-  if paused_for_cache_timer then
-    paused_for_cache_timer:kill()
-    paused_for_cache_timer = nil
-    paused_for_cache_seconds = 0
-  end
-end
-
-function start_timer(interval_seconds, timeout_seconds)
-  msg.debug("start_timer")
-  paused_for_cache_timer = mp.add_periodic_timer(
-    interval_seconds,
-    function()
-      paused_for_cache_seconds = paused_for_cache_seconds + interval_seconds
-      if paused_for_cache_seconds >= timeout_seconds then
-        reset_timer()
-        reload_resume()
-      end
-    end
-  )
-end
-
-function paused_for_cache_handler(property, is_paused)
-  if is_paused then
-
-    if demuxer_cache.is_state_stuck() then
-      msg.info("demuxer cache has no progress")
-      -- reset demuxer state to avoid immediate reload if
-      -- paused_for_cache event triggered right after reload
-      demuxer_cache.reset_state()
-      reload_resume()
-    end
-
-    if not paused_for_cache_timer then
-      start_timer(
-        settings.paused_for_cache_timer_interval,
-        settings.paused_for_cache_timer_timeout)
-    end
-  else
-    if paused_for_cache_timer then
-      reset_timer()
-    end
-  end
-end
-
 -- main
 
 read_settings()
@@ -364,7 +366,7 @@ if settings.reload_key_binding ~= "" then
 end
 
 if settings.paused_for_cache_timer_enabled then
-  mp.observe_property("paused-for-cache", "bool", paused_for_cache_handler)
+  mp.observe_property("paused-for-cache", "bool", paused_for_cache.handler)
 end
 
 if settings.demuxer_cache_timer_enabled then
