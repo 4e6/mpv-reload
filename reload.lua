@@ -72,12 +72,151 @@ local settings = {
   reload_key_binding = "Ctrl+r",
 }
 
+
+-- FSM managing the demuxer cache.
+--
+-- States:
+--
+-- * fetch - fetching new data
+-- * stale - unable to fetch new data for time <  'demuxer_cache_timer_timeout'
+-- * stuck - unable to fetch new data for time >= 'demuxer_cache_timer_timeout'
+--
+-- State transitions:
+--
+--    +---------------------------+
+--    v                           |
+-- +-------+     +-------+     +-------+
+-- + fetch +<--->+ stale +---->+ stuck |
+-- +-------+     +-------+     +-------+
+--   |   ^         |   ^         |   ^
+--   +---+         +---+         +---+
 local demuxer_cache = {
   timer = nil,
-  time = 0,
-  has_progress = true,
-  no_progress_time = 0,
+
+  state = {
+    name = 'uninitialized',
+    demuxer_cache_time = 0,
+    in_state_time = 0,
+  },
+
+  events = {
+    continue_fetch = { name = 'continue_fetch', from = 'fetch', to = 'fetch' },
+    continue_stale = { name = 'continue_stale', from = 'stale', to = 'stale' },
+    continue_stuck = { name = 'continue_stuck', from = 'stuck', to = 'stuck' },
+    fetch_to_stale = { name = 'fetch_to_stale', from = 'fetch', to = 'stale' },
+    stale_to_fetch = { name = 'stale_to_fetch', from = 'stale', to = 'fetch' },
+    stale_to_stuck = { name = 'stale_to_stuck', from = 'stale', to = 'stuck' },
+    stuck_to_fetch = { name = 'stuck_to_fetch', from = 'stuck', to = 'fetch' },
+  },
+
 }
+
+-- Always start with 'fetch' state
+function demuxer_cache.reset_state()
+  demuxer_cache.state = {
+    name = demuxer_cache.events.continue_fetch.to,
+    demuxer_cache_time = 0,
+    in_state_time = 0,
+  }
+end
+
+-- Has 'demuxer_cache_time' changed
+function demuxer_cache.has_progress_since(t)
+  return demuxer_cache.state.demuxer_cache_time ~= t
+end
+
+function demuxer_cache.is_state_fetch()
+  return demuxer_cache.state.name == demuxer_cache.events.continue_fetch.to
+end
+
+function demuxer_cache.is_state_stale()
+  return demuxer_cache.state.name == demuxer_cache.events.continue_stale.to
+end
+
+function demuxer_cache.is_state_stuck()
+  return demuxer_cache.state.name == demuxer_cache.events.continue_stuck.to
+end
+
+function demuxer_cache.transition(event)
+  if demuxer_cache.state.name == event.from then
+
+    -- state setup
+    demuxer_cache.state.demuxer_cache_time = event.demuxer_cache_time
+
+    if event.name == 'continue_fetch' then
+      demuxer_cache.state.in_state_time = demuxer_cache.state.in_state_time + event.interval
+    elseif event.name == 'continue_stale' then
+      demuxer_cache.state.in_state_time = demuxer_cache.state.in_state_time + event.interval
+    elseif event.name == 'continue_stuck' then
+      demuxer_cache.state.in_state_time = demuxer_cache.state.in_state_time + event.interval
+    elseif event.name == 'fetch_to_stale' then
+      demuxer_cache.state.in_state_time = 0
+    elseif event.name == 'stale_to_fetch' then
+      demuxer_cache.state.in_state_time = 0
+    elseif event.name == 'stale_to_stuck' then
+      demuxer_cache.state.in_state_time = 0
+    elseif event.name == 'stuck_to_fetch' then
+      demuxer_cache.state.in_state_time = 0
+    end
+
+    -- state transition
+    demuxer_cache.state.name = event.to
+
+    msg.debug('demuxer_cache.transition', event.name, utils.to_string(demuxer_cache.state))
+  else
+    msg.error(
+      'demuxer_cache.transition',
+      'illegal transition', event.name,
+      'from state', demuxer_cache.state.name)
+  end
+end
+
+function demuxer_cache.initialize(demuxer_cache_timer_interval)
+  demuxer_cache.reset_state()
+  demuxer_cache.timer = mp.add_periodic_timer(
+    demuxer_cache_timer_interval,
+    function()
+      demuxer_cache.demuxer_cache_timer_tick(
+        mp.get_property_native('demuxer-cache-time'),
+        demuxer_cache_timer_interval)
+    end
+  )
+end
+
+-- If there is no progress of demuxer_cache_time in
+-- settings.demuxer_cache_timer_timeout time interval switch state to
+-- 'stuck' and switch back to 'fetch' as soon as any progress is made
+function demuxer_cache.demuxer_cache_timer_tick(demuxer_cache_time, demuxer_cache_timer_interval)
+  local event = nil
+  local cache_has_progress = demuxer_cache.has_progress_since(demuxer_cache_time)
+
+  -- I miss pattern matching so much
+  if demuxer_cache.is_state_fetch() then
+    if cache_has_progress then
+      event = demuxer_cache.events.continue_fetch
+    else
+      event = demuxer_cache.events.fetch_to_stale
+    end
+  elseif demuxer_cache.is_state_stale() then
+    if cache_has_progress then
+      event = demuxer_cache.events.stale_to_fetch
+    elseif demuxer_cache.state.in_state_time < settings.demuxer_cache_timer_timeout then
+      event = demuxer_cache.events.continue_stale
+    else
+      event = demuxer_cache.events.stale_to_stuck
+    end
+  elseif demuxer_cache.is_state_stuck() then
+    if cache_has_progress then
+      event = demuxer_cache.events.stuck_to_fetch
+    else
+      event = demuxer_cache.events.continue_stuck
+    end
+  end
+
+  event.demuxer_cache_time = demuxer_cache_time
+  event.interval = demuxer_cache_timer_interval
+  demuxer_cache.transition(event)
+end
 
 -- global state stores properties between reloads
 local paused_for_cache_seconds = 0
@@ -175,16 +314,18 @@ function start_timer(interval_seconds, timeout_seconds)
         reset_timer()
         reload_resume()
       end
-  end)
+    end
+  )
 end
 
 function paused_for_cache_handler(property, is_paused)
   if is_paused then
-    if not demuxer_cache.has_progress then
+
+    if demuxer_cache.is_state_stuck() then
       msg.info("demuxer cache has no progress")
-      -- reset demuxer_cache timer to avoid immediate reload if
+      -- reset demuxer state to avoid immediate reload if
       -- paused_for_cache event triggered right after reload
-      demuxer_cache.has_progress = true
+      demuxer_cache.reset_state()
       reload_resume()
     end
 
@@ -213,26 +354,7 @@ if settings.paused_for_cache_timer_enabled then
 end
 
 if settings.demuxer_cache_timer_enabled then
-  -- if there is no progress of demuxer-cache-time in settings.demuxer_cache_time_duration
-  -- set demuxer_cache.has_progress = false and
-  -- set back to true as soon as any progress is made
-  demuxer_cache.timer = mp.add_periodic_timer(
-    settings.demuxer_cache_timer_interval,
-    function()
-      demuxer_cache_time = mp.get_property_native("demuxer-cache-time")
-      demuxer_has_progress = demuxer_cache.time ~= demuxer_cache_time
-      demuxer_cache.time = demuxer_cache_time
-
-      if not demuxer_has_progress then
-        demuxer_cache.no_progress_time = demuxer_cache.no_progress_time + settings.demuxer_cache_timer_interval
-      else
-        demuxer_cache.no_progress_time = 0
-      end
-
-      demuxer_cache.has_progress = demuxer_cache.no_progress_time < settings.demuxer_cache_timer_timeout
-
-      msg.debug("demuxer_cache", utils.to_string(demuxer_cache))
-    end)
+  demuxer_cache.initialize(settings.demuxer_cache_timer_interval)
 end
 
 if settings.reload_eof_enabled then
@@ -248,7 +370,8 @@ if settings.reload_eof_enabled then
         mp.set_property("keep-open", "yes")
         mp.set_property("keep-open-pause", "no")
       end
-    end)
+    end
+  )
 
   mp.observe_property("eof-reached", "bool", reload_eof)
 end
