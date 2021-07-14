@@ -8,7 +8,7 @@
 --
 -- SETTINGS
 --
--- To override default setting put `lua-settings/reload.conf` file in
+-- To override default setting put `script-opts/reload.conf` file in
 -- mpv user folder, on linux it is `~/.config/mpv`.  NOTE: config file
 -- name should match the name of the script.
 --
@@ -318,6 +318,13 @@ function reload_resume()
   if reload_duration and reload_duration > 0 then
     msg.info("reloading video from", time_pos, "second")
     reload(path, time_pos)
+  -- VODs get stuck when reload is called without a time_pos
+  -- this is most noticeable in youtube videos whenever download gets stuck in the first frames
+  -- video would stay paused without being actually paused
+  -- issue surfaced in mpv 0.33, afaik
+  elseif reload_duration and reload_duration == 0 then
+    msg.info("reloading video from", time_pos, "second")
+    reload(path, time_pos)
   else
     msg.info("reloading stream")
     reload(path, nil)
@@ -392,4 +399,4 @@ if settings.reload_eof_enabled then
   mp.observe_property("eof-reached", "bool", reload_eof)
 end
 
---mp.register_event("file-loaded", debug_info)
+--mp.register_event("file-loaded", debug_info) 
