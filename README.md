@@ -13,8 +13,8 @@ Mpv reads its configuration from `MPV_HOME` directory. On Unix it is
 the manual for the Windows configuration files.
 
 To install the script, copy `reload.lua` to the `MPV_HOME/scripts` directory.
-To override default settings, create `reload.conf` file in the lua-settings
-directory `MPV_HOME/lua-settings`.
+To override default settings, create `reload.conf` file in the script-opts
+directory `MPV_HOME/script-opts`.
 
 NOTE: config file name should match the name of the script.
 
