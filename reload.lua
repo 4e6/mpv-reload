@@ -356,6 +356,32 @@ function reload_eof(property, eof_reached)
   end
 end
 
+function on_file_loaded(event)
+  local debug_info = {
+    event = event,
+    time_pos = mp.get_property("time-pos"),
+    stream_pos = mp.get_property("stream-pos"),
+    stream_end = mp.get_property("stream-end"),
+    duration = mp.get_property("duration"),
+    seekable = mp.get_property("seekable"),
+    pause = mp.get_property("pause"),
+    paused_for_cache = mp.get_property("paused-for-cache"),
+    cache_buffering_state = mp.get_property("cache-buffering-state"),
+  }
+  msg.debug("debug_info", utils.to_string(debug_info))
+
+  -- When the video is reloaded after being paused for cache, it won't start
+  -- playing again while all properties looks fine:
+  -- `pause=no`, `paused-for-cache=no` and `cache-buffering-state=100`.
+  -- As a workaround, we cycle through the paused state by sending two SPACE
+  -- keypresses.
+  -- What didn't work:
+  -- - Cycling through the `pause` property.
+  -- - Run the `playlist-play-index current` command.
+  mp.commandv("keypress", 'SPACE')
+  mp.commandv("keypress", 'SPACE')
+end
+
 -- main
 
 read_settings()
@@ -389,32 +415,6 @@ if settings.reload_eof_enabled then
   )
 
   mp.observe_property("eof-reached", "bool", reload_eof)
-end
-
-function on_file_loaded(event)
-  local debug_info = {
-    event = event,
-    time_pos = mp.get_property("time-pos"),
-    stream_pos = mp.get_property("stream-pos"),
-    stream_end = mp.get_property("stream-end"),
-    duration = mp.get_property("duration"),
-    seekable = mp.get_property("seekable"),
-    pause = mp.get_property("pause"),
-    paused_for_cache = mp.get_property("paused-for-cache"),
-    cache_buffering_state = mp.get_property("cache-buffering-state"),
-  }
-  msg.debug("debug_info", utils.to_string(debug_info))
-
-  -- When the video is reloaded after being paused for cache, it won't start
-  -- playing again while all properties looks fine:
-  -- `pause=no`, `paused-for-cache=no` and `cache-buffering-state=100`.
-  -- As a workaround, we cycle through the paused state by sending two SPACE
-  -- keypresses.
-  -- What didn't work:
-  -- - Cycling through the `pause` property.
-  -- - Run the `playlist-play-index current` command.
-  mp.commandv("keypress", 'SPACE')
-  mp.commandv("keypress", 'SPACE')
 end
 
 mp.register_event("file-loaded", on_file_loaded)
