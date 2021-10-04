@@ -65,4 +65,7 @@ reload_key_binding=Ctrl+r
 ## Debugging
 
 Debug messages will be printed to stdout with mpv command line option
-`--msg-level='reload=debug'`
+`--msg-level='reload=debug'`. You may also need to add the `--no-msg-color`
+option to make the debug logs visible if you are using a dark colorscheme in
+terminal.
+
