@@ -327,7 +327,6 @@ function reload_resume()
   for i = playlist_pos+1, playlist_count-1 do
     mp.commandv("loadfile", playlist[i], "append")
   end
-  msg.debug("!!! trigger playback")
   mp.commandv("keypress", 'SPACE')
   mp.commandv("keypress", 'SPACE')
 end
