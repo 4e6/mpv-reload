@@ -319,7 +319,7 @@ function reload_resume()
     msg.info("reloading stream")
     reload(path, nil)
   end
-  msg.info("file ", playlist_pos+1, "of", playlist_count, "in playlist")
+  msg.info("file", playlist_pos+1, "of", playlist_count, "in playlist")
   for i = 0, playlist_pos-1 do
     mp.commandv("loadfile", playlist[i], "append")
   end
@@ -334,15 +334,14 @@ function reload_eof(property, eof_reached)
   local time_pos = mp.get_property_number("time-pos")
   local duration = mp.get_property_number("duration")
 
-  if eof_reached and math.floor(time_pos) == math.floor(duration) then
+  if eof_reached and round(time_pos) == round(duration) then
     msg.debug("property_time_pos", property_time_pos, "time_pos", time_pos)
 
     -- Check that playback time_pos made progress after the last reload. When
-    -- eof is reached we try to reload video, in case there is more content
-    -- available. If time_pos stayed the same after reload, it means that vidkk
-    -- to avoid infinite reload loop when playback ended
-    -- math.floor function rounds time_pos to a second, to avoid inane reloads
-    if math.floor(property_time_pos) == math.floor(time_pos) then
+    -- eof is reached we try to reload the video, in case there is more content
+    -- available. If time_pos stayed the same after reload, it means that the
+    -- video length stayed the same, and we can end the playback.
+    if round(property_time_pos) == round(time_pos) then
       msg.info("eof reached, playback ended")
       mp.set_property("keep-open", property_keep_open)
     else
@@ -378,6 +377,11 @@ function on_file_loaded(event)
   -- - Run the `playlist-play-index current` command.
   mp.commandv("keypress", 'SPACE')
   mp.commandv("keypress", 'SPACE')
+end
+
+-- Round positive numbers.
+function round(num)
+  return math.floor(num + 0.5)
 end
 
 -- main
