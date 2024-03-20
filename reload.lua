@@ -287,8 +287,8 @@ function reload(path, time_pos)
   else
     local success = mp.commandv("loadfile", path, "replace", -1, "start=+" .. time_pos)
     -- fallback to old syntax of loadfile for compatibility
-    if success ~= true then
-      msg.warn("old loadfile syntax detected. update mpv to remove this warning")
+    if success == nil then
+      msg.warn("old loadfile syntax detected. falling back to using old syntax. update mpv to remove this warning")
       mp.commandv("loadfile", path, "replace", "start=+" .. time_pos)
     end
   end
