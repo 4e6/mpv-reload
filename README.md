@@ -12,7 +12,12 @@ Mpv reads its configuration from `MPV_HOME` directory. On Unix it is
 `~/.config/mpv`, see [files](https://mpv.io/manual/stable/#files) section of
 the manual for the Windows configuration files.
 
-To install the script, copy `reload.lua` to the `MPV_HOME/scripts` directory.
+To install the script, you can either:
+
+* clone this repository to the `MPV_HOME/scripts` directory and name it
+  appropriately: `git clone <repo-url> -- <MPV_HOME>/scripts/reload`
+* or copy `main.lua` to `MPV_HOME/scripts` and rename it `reload.lua`.
+
 To override default settings, create `reload.conf` file in the script-opts
 directory `MPV_HOME/script-opts`.
 
@@ -68,4 +73,3 @@ Debug messages will be printed to stdout with mpv command line option
 `--msg-level='reload=debug'`. You may also need to add the `--no-msg-color`
 option to make the debug logs visible if you are using a dark colorscheme in
 terminal.
-
