@@ -301,9 +301,11 @@ function reload_resume()
 
   local playlist_count = mp.get_property_number("playlist/count")
   local playlist_pos = mp.get_property_number("playlist-pos")
-  local playlist = {}
+  local filenames = {}
+  local titles = {}
   for i = 0, playlist_count-1 do
-      playlist[i] = mp.get_property("playlist/" .. i .. "/filename")
+      filenames[i] = mp.get_property("playlist/" .. i .. "/filename")
+      titles[i] = mp.get_property("playlist/" .. i .. "/title")
   end
   -- Tries to determine live stream vs. pre-recordered VOD. VOD has non-zero
   -- duration property. When reloading VOD, to keep the current time position
@@ -326,11 +328,13 @@ function reload_resume()
   end
   msg.info("file", playlist_pos+1, "of", playlist_count, "in playlist")
   for i = 0, playlist_pos-1 do
-    mp.commandv("loadfile", playlist[i], "append")
+    mp.commandv("loadfile", filenames[i], "append")
+    mp.set_property("playlist/" .. i .. "/title", titles[i])
   end
   mp.commandv("playlist-move", 0, playlist_pos+1)
   for i = playlist_pos+1, playlist_count-1 do
-    mp.commandv("loadfile", playlist[i], "append")
+    mp.commandv("loadfile", filenames[i], "append")
+    mp.set_property("playlist/" .. i .. "/title", titles[i])
   end
 end
 
