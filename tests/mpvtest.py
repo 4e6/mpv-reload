@@ -191,8 +191,9 @@ class Mpv:
         opts = ",".join("%s-%s=%s" % (SCRIPT_NAME, k, v)
                         for k, v in (script_opts or {}).items())
         cmd = MPV + [
+            # Only options that exist on every supported mpv: an unknown option
+            # is a fatal startup error (--load-console, for one, is missing on 0.37).
             "--no-config", "--load-scripts=no", "--ytdl=no",
-            "--osc=no", "--load-stats-overlay=no", "--load-console=no",
             "--vo=null", "--ao=null", "--idle=yes", "--force-window=no",
             "--no-terminal", "--input-ipc-server=" + self.sock_path,
             "--log-file=" + self.log_path,
