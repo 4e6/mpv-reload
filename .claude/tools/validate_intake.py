@@ -4,9 +4,10 @@
     python3 .claude/tools/validate_intake.py <dir>/intake.json
 
 The privileged agent acts only on the printed copy, which is rebuilt from the
-validated fields. Exit status 1 and a message on stderr for anything off-schema:
-unknown or missing keys, values outside their enum, a version that is not a plain
-number, over-long text, or control characters.
+validated fields. Exit status 1 and a message on stderr for anything off-schema: unknown or missing
+keys, values outside their enum, a version that is not a plain number, over-long
+text, or anything but printable ASCII. Error messages never repeat the input, only
+counts and the schema's own names: they are read by the privileged agent.
 """
 import json
 import re
@@ -33,8 +34,8 @@ def text(value, name, limit, allow_none=False):
         raise Invalid("%s must be a string" % name)
     if len(value) > limit:
         raise Invalid("%s is longer than %d characters" % (name, limit))
-    if any(ord(c) < 32 or ord(c) == 127 for c in value):
-        raise Invalid("%s contains control characters or newlines" % name)
+    if any(not 32 <= ord(c) < 127 for c in value):
+        raise Invalid("%s must be one line of printable ASCII" % name)
     return value
 
 
@@ -43,8 +44,8 @@ def validate(data):
         raise Invalid("intake output must be a JSON object")
     extra, missing = set(data) - KEYS, KEYS - set(data)
     if extra or missing:
-        raise Invalid("keys differ from the schema (extra: %s, missing: %s)"
-                      % (sorted(extra), sorted(missing)))
+        raise Invalid("keys differ from the schema (%d unexpected, missing: %s)"
+                      % (len(extra), sorted(missing)))  # never echo attacker-chosen key names
     if data["kind"] not in KINDS:
         raise Invalid("kind must be one of %s" % sorted(KINDS))
     version = data["mpv_version"]
@@ -62,7 +63,11 @@ def validate(data):
     reason = text(data["injection_reason"], "injection_reason", MAX_REASON, allow_none=True)
     if data["injection_suspected"] and not reason:
         raise Invalid("injection_suspected needs an injection_reason")
+    if reason and not data["injection_suspected"]:
+        raise Invalid("injection_reason is only allowed when injection_suspected is true")
     summary = text(data["summary"], "summary", MAX_SUMMARY)
+    if not summary.strip():
+        raise Invalid("summary must not be empty")
     return {
         "kind": data["kind"], "mpv_version": version, "os": data["os"],
         "has_debug_log": data["has_debug_log"], "has_repro": data["has_repro"],
@@ -78,7 +83,9 @@ def main(argv):
     try:
         with open(argv[0]) as f:
             clean = validate(json.load(f))
-    except (OSError, ValueError, Invalid) as e:
+    except (OSError, ValueError, RecursionError, Invalid) as e:
+        if not isinstance(e, Invalid):
+            e = "not valid JSON" if not isinstance(e, OSError) else "cannot read the file"
         sys.stderr.write("INVALID INTAKE: %s\n" % e)
         return 1
     print(json.dumps(clean, indent=1, sort_keys=True))

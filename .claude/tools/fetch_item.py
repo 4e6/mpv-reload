@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Fetch one mpv-reload issue or PR into a private temp dir.
+"""Fetch one mpv-reload issue or PR (library for intake.py).
 
-    python3 .claude/tools/fetch_item.py 27
+    python3 .claude/tools/fetch_item.py 27     # prints the trusted metadata only
 
-The item's text is written to <dir>/item.json for the `mpv-intake` subagent and
-is NOT printed. Standard output carries only values that are safe to put in the
-privileged agent's context: the temp dir, the kind, GitHub's own metadata
-(author association, state), a login that matched GitHub's character set, the
-changed file names that matched a conservative pattern, and check counts.
-Titles, bodies, comments and diffs never appear on stdout.
+The item's text goes to the quarantined model (see intake.py) and is NOT printed.
+Standard output carries only values that are safe to put in the privileged
+agent's context: the kind, GitHub's own metadata (author association,
+state), a login that matched GitHub's character set, the names of changed files
+that ALREADY EXIST in this repository (anything else is only counted), and check
+counts. Titles, bodies, comments, diffs and new file names never appear on stdout.
 """
 import json
 import os
 import re
 import subprocess
 import sys
-import tempfile
 
 REPO = os.environ.get("MPV_RELOAD_REPO", "4e6/mpv-reload")
 LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
-PATH = re.compile(r"[A-Za-z0-9._/-]{1,120}")
+STATES = {"OPEN", "CLOSED", "MERGED"}
 ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR",
                 "FIRST_TIME_CONTRIBUTOR", "FIRST_TIMER", "NONE", "MANNEQUIN"}
 MAX_BODY = 20000
 MAX_COMMENTS = 30
+MAX_FILES_LISTED = 20
 
 # `gh issue view` and `gh pr view` do not offer authorAssociation; the REST issue
 # endpoint does, and also says whether the number is a PR.
@@ -68,10 +68,31 @@ def check_counts(rollup):
     return counts
 
 
-def normalize(raw, kind):
-    """Return (item for the subagent, trusted summary lines for stdout)."""
+def repo_files():
+    """Paths tracked in this checkout: the only file names it is safe to print."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    out = subprocess.run(["git", "-C", root, "ls-files"], stdout=subprocess.PIPE,
+                         stderr=subprocess.DEVNULL, universal_newlines=True)
+    return set(out.stdout.splitlines())
+
+
+def classify_files(names, known):
+    """Split a PR's changed files into (existing names to print, summary flags)."""
+    existing = sorted(n for n in names if n in known)
+    new = [n for n in names if n not in known]
+    flags = {
+        "NEW_FILES": len(new),
+        "TOUCHES_CLAUDE_DIR": "yes" if any(n.startswith(".claude/") for n in names) else "no",
+        "TOUCHES_GITHUB_DIR": "yes" if any(n.startswith(".github/") for n in names) else "no",
+    }
+    return existing[:MAX_FILES_LISTED], len(existing) - min(len(existing), MAX_FILES_LISTED), flags
+
+
+def normalize(raw, kind, known_files=None):
+    """Return (item for the quarantined model, trusted summary lines for stdout)."""
     author = (raw.get("author") or {}).get("login") or ""
     association = raw.get("authorAssociation") or "NONE"
+    state = str(raw.get("state") or "?").upper()
     item = {
         "kind": kind,
         "number": raw["number"],
@@ -92,20 +113,19 @@ def normalize(raw, kind):
     lines = [
         "KIND=" + kind,
         "NUMBER=%d" % raw["number"],
-        "STATE=" + str(raw.get("state") or "?").upper(),
+        "STATE=" + (state if state in STATES else "?"),
         "ASSOC=" + (association if association in ASSOCIATIONS else "NONE"),
         "AUTHOR=" + (author if LOGIN.fullmatch(author) else "?"),
     ]
     if kind == "pr":
         names = [f.get("path") or "" for f in raw.get("files") or []]
-        good = [n for n in names if PATH.fullmatch(n)]
-        item["files"] = good
-        item["files_with_odd_names"] = len(names) - len(good)
+        item["files"] = names[:200]
+        existing, more, flags = classify_files(names, known_files if known_files is not None else repo_files())
         counts = check_counts(raw.get("statusCheckRollup"))
         lines += [
             "FROM_FORK=" + ("yes" if raw.get("isCrossRepository") else "no"),
-            "FILES=" + ",".join(good),
-            "ODD_FILE_NAMES=%d" % (len(names) - len(good)),
+            "EXISTING_FILES_CHANGED=" + ",".join(existing) + (" (+%d more)" % more if more else ""),
+        ] + ["%s=%s" % kv for kv in sorted(flags.items())] + [
             "CHECKS=pass:%(pass)d,fail:%(fail)d,pending:%(pending)d" % counts,
         ]
     return item, lines
@@ -121,15 +141,11 @@ def fetch(number):
 
 
 def main(argv):
+    """Print the trusted metadata only. intake.py is the real entry point."""
     number = parse_number(argv)
     raw, kind = fetch(number)
-    item, lines = normalize(raw, kind)
-    directory = tempfile.mkdtemp(prefix="mpv-intake-")  # mode 0700
-    with open(os.path.join(directory, "item.json"), "w") as f:
-        json.dump(item, f, indent=1)
-    print("DIR=" + directory)
-    for line in lines:
-        print(line)
+    _, lines = normalize(raw, kind)
+    print("\n".join(lines))
 
 
 if __name__ == "__main__":
