@@ -1,0 +1,61 @@
+# Lint, and run the tests against real mpv builds.
+#
+# Three mpv versions are required: 0.37 (the last one with the old `loadfile`
+# syntax), 0.40 (new syntax, Debian stable) and whatever is the latest release.
+# Run it by hand (workflow_dispatch) after a new mpv release to re-test "latest".
+#
+# No secrets and read-only permissions: fork pull requests run this too.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  luacheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: lunarmodules/luacheck@v1
+
+  test:
+    name: mpv ${{ matrix.name }}
+    # Pinned: ubuntu-latest will move to a release that ships a newer mpv, and
+    # the old-syntax cell would silently disappear.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "0.37 (Ubuntu 24.04)"
+            container: ""
+            install: sudo apt-get update && sudo apt-get install -y mpv ffmpeg
+          - name: "0.40 (Debian 13)"
+            container: debian:trixie
+            install: apt-get update && apt-get install -y mpv ffmpeg python3
+          - name: "latest (Arch Linux)"
+            container: archlinux:latest
+            install: pacman -Syu --noconfirm mpv ffmpeg python
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mpv and ffmpeg
+        run: ${{ matrix.install }}
+      - name: Show versions
+        run: |
+          mpv --version | head -n 2
+          python3 --version
+      - name: Run tests
+        run: python3 tests/run.py

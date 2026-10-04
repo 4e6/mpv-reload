@@ -26,6 +26,13 @@ NOTE: config file name should match the name of the script.
 For configuration example you can also check
 [4e6/dotfiles](https://github.com/4e6/dotfiles/tree/master/.config/mpv) repo.
 
+## Supported mpv versions
+
+mpv 0.37 and newer. CI runs the test suite on 0.37 (Ubuntu 24.04), 0.40
+(Debian 13) and the latest release. mpv 0.38 added an `index` argument to
+`loadfile`; the script uses the new form and falls back to the old one, so both
+sides are tested. Older versions may work but are not tested.
+
 ## Settings
 
 Default `reload.conf` settings:
@@ -73,3 +80,19 @@ Debug messages will be printed to stdout with mpv command line option
 `--msg-level='reload=debug'`. You may also need to add the `--no-msg-color`
 option to make the debug logs visible if you are using a dark colorscheme in
 terminal.
+
+## Development
+
+The tests drive a real headless mpv (`--vo=null --ao=null`) over its IPC socket
+against a local HTTP server that can stall or hold requests. They need mpv,
+ffmpeg and Python 3, and nothing else.
+
+```
+python3 tests/run.py              # all tests, against `mpv` from PATH
+python3 tests/run.py -k stall     # tests whose id contains "stall"
+MPV=/path/to/mpv python3 tests/run.py
+```
+
+Tests that fail because of a known bug are listed in `tests/known_failing.py`.
+They count as expected failures; when one starts passing the run fails until
+its row is deleted, so a fix has to remove its own row.
