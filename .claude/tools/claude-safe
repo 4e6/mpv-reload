@@ -44,6 +44,10 @@ deny="$deny,Read(**/.env*),Read(~/.ssh/**),Read(~/.config/**),Read(~/.aws/**),Re
 deny="$deny,Read(~/.claude/**),Read(~/.npmrc),Read(~/.docker/**),Read(~/.kube/**),Read(~/.git-credentials)"
 deny="$deny,Read(~/.zsh_history),Read(~/.bash_history),Read(~/.pypirc)"
 
+# These switch intake.py to fixtures, another claude command, or text output for the
+# OWNER running it by hand. A copy exported in your shell must not reach the session.
+unset MPV_RELOAD_INTAKE_FIXTURE MPV_RELOAD_INTAKE_SHOW_TEXT MPV_RELOAD_CLAUDE
+
 # The prompt goes first so the variadic --disallowedTools cannot swallow it.
 # --strict-mcp-config: no MCP connectors (mail, drive, ...) in this session.
 exec claude "$@" --permission-mode manual --strict-mcp-config --disallowedTools "$deny"
