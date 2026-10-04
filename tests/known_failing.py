@@ -11,8 +11,4 @@ Crashes and timeouts are never "expected".
 """
 
 KNOWN_FAILING = {
-    "test_reload.PlaylistTests.test_playlist_titles_survive_reload": {
-        "cells": ["*"],
-        "message": "playlist titles lost after reload (#23)",
-    },
 }
