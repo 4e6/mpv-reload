@@ -86,6 +86,17 @@ class ReloadTests(ReloadCase):
         self.assertEqual(mpv.log_count("reloading video from"), 1)
         self.assertAlmostEqual(reload_position(mpv), before, delta=2)
 
+    def test_playback_advances_after_reload(self):
+        # A reload must leave playback running, not merely at the right position.
+        server = self.serve()
+        mpv = self.start()
+        self.play(mpv, server.url(), seek=20)
+        self.reload_and_wait(mpv)
+        start = wait_until(lambda: mpv.get("time-pos"), "a playback position", mpv=mpv)
+        wait_until(lambda: (mpv.get("time-pos") or 0) > start + 1,
+                   "playback to advance after the reload", mpv=mpv)
+        self.assertFalse(mpv.get("pause"), "playback is paused after the reload")
+
     def test_loadfile_syntax_fallback(self):
         # mpv 0.38 added an `index` argument to loadfile. The script tries the
         # new form first and falls back to the old one on older mpv. Either way
@@ -113,6 +124,9 @@ class ReloadTests(ReloadCase):
         resume = reload_position(mpv)
         self.assertIsNotNone(resume, "expected a 'reloading video from' log line")
         self.assert_resumed_at(mpv, resume)
+        start = wait_until(lambda: mpv.get("time-pos"), "a playback position", mpv=mpv)
+        wait_until(lambda: (mpv.get("time-pos") or 0) > start + 1,
+                   "playback to advance after the reload", mpv=mpv)
         return mpv
 
     def test_stalled_download_reloads_via_demuxer_cache(self):

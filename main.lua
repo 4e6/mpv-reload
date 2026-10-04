@@ -384,17 +384,6 @@ function on_file_loaded(event)
     cache_buffering_state = mp.get_property("cache-buffering-state"),
   }
   msg.debug("debug_info", utils.to_string(debug_info))
-
-  -- When the video is reloaded after being paused for cache, it won't start
-  -- playing again while all properties looks fine:
-  -- `pause=no`, `paused-for-cache=no` and `cache-buffering-state=100`.
-  -- As a workaround, we cycle through the paused state by sending two SPACE
-  -- keypresses.
-  -- What didn't work:
-  -- - Cycling through the `pause` property.
-  -- - Run the `playlist-play-index current` command.
-  mp.commandv("keypress", 'SPACE')
-  mp.commandv("keypress", 'SPACE')
 end
 
 -- Round positive numbers.
