@@ -1,0 +1,33 @@
+#!/bin/sh
+# Start Claude Code for /mpv-triage or /mpv-fix with the safety settings they assume.
+#
+#   .claude/tools/claude-safe "/mpv-triage"
+#   .claude/tools/claude-safe "/mpv-fix 21"
+#
+# Issue and PR text is written by strangers, and a session holds your credentials.
+# This wrapper:
+#   - asks before every tool that is not pre-approved (--permission-mode manual),
+#     whatever your global default mode is;
+#   - hard-denies the tools an injected instruction would need to leak or exfiltrate
+#     (web access, curl/wget, ssh/gcloud, `gh api`, .env and ssh key files);
+#   - uses a token limited to this repository if you have created one:
+#       ~/.config/mpv-reload/gh-token   (a fine-grained token for 4e6/mpv-reload with
+#       Contents, Issues and Pull requests read/write, nothing else)
+set -eu
+cd "$(dirname "$0")/../.."
+
+token_file="${MPV_RELOAD_GH_TOKEN_FILE:-$HOME/.config/mpv-reload/gh-token}"
+if [ -r "$token_file" ]; then
+  GH_TOKEN="$(cat "$token_file")"
+  export GH_TOKEN
+else
+  echo "claude-safe: no repository-scoped token at $token_file; using your normal gh login." >&2
+fi
+
+# Read is denied for the usual credential locations too: the intake subagent has only
+# Read, and an injected instruction could otherwise copy a secret into its summary.
+deny="WebFetch,WebSearch,Bash(curl:*),Bash(wget:*),Bash(ssh:*),Bash(scp:*),Bash(gcloud:*),Bash(gh api:*)"
+deny="$deny,Read(**/.env*),Read(~/.ssh/**),Read(~/.config/**),Read(~/.aws/**),Read(~/.gnupg/**),Read(~/.netrc),Read(~/.claude/**)"
+
+# The prompt goes first so the variadic --disallowedTools cannot swallow it.
+exec claude "$@" --permission-mode manual --disallowedTools "$deny"
