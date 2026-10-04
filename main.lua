@@ -79,6 +79,11 @@ local property_path = nil
 local property_time_pos = 0
 local property_keep_open = nil
 
+-- Position and duration saved by the last reload, kept until the reloaded file
+-- has loaded. While it is loading mpv has no time-pos or duration, so a repeated
+-- reload would take them for a live stream and lose the position.
+local reload_saved = nil
+
 -- FSM managing the demuxer cache.
 --
 -- States:
@@ -299,6 +304,13 @@ function reload_resume()
   local time_pos = mp.get_property("time-pos")
   local reload_duration = mp.get_property_native("duration")
 
+  if reload_saved and reload_saved.path == path then
+    time_pos = reload_saved.time_pos
+    reload_duration = reload_saved.duration
+  else
+    reload_saved = { path = path, time_pos = time_pos, duration = reload_duration }
+  end
+
   local playlist_count = mp.get_property_number("playlist/count")
   local playlist_pos = mp.get_property_number("playlist-pos")
   local playlist = {}
@@ -359,6 +371,7 @@ function reload_eof(property, eof_reached)
 end
 
 function on_file_loaded(event)
+  reload_saved = nil
   local debug_info = {
     event = event,
     time_pos = mp.get_property("time-pos"),

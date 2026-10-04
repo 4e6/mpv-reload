@@ -15,8 +15,4 @@ KNOWN_FAILING = {
         "cells": ["*"],
         "message": "playlist titles lost after reload (#23)",
     },
-    "test_reload.RaceTests.test_second_reload_while_first_is_loading_keeps_position": {
-        "cells": ["*"],
-        "message": "position lost after second reload during a reload (#21)",
-    },
 }
