@@ -1,0 +1,6 @@
+# These files run in the owner's agent sessions, in CI, or on users' machines.
+# With "require review from Code Owners" on in the branch rules, a change here needs the owner.
+/.claude/    @4e6
+/.github/    @4e6
+/main.lua    @4e6
+/CLAUDE.md   @4e6

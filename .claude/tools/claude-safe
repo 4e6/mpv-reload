@@ -1,0 +1,53 @@
+#!/bin/sh
+# Start Claude Code for /mpv-triage or /mpv-fix with the safety settings they assume.
+#
+#   .claude/tools/claude-safe "/mpv-triage"
+#   .claude/tools/claude-safe "/mpv-fix 21"
+#
+# Issue and PR text is written by strangers, and a session holds your credentials.
+# This wrapper:
+#   - asks before every tool that is not pre-approved (--permission-mode manual),
+#     whatever your global default mode is;
+#   - hard-denies the tools an injected instruction would need to leak or exfiltrate
+#     (web access, curl/wget, ssh/gcloud, `gh api`, .env and ssh key files);
+#   - refuses to start without a token limited to this repository:
+#       ~/.config/mpv-reload/gh-token   (a fine-grained token for 4e6/mpv-reload with
+#       Contents, Issues and Pull requests read/write, nothing else);
+#   - starts the session with no MCP connectors.
+set -eu
+cd "$(dirname "$0")/../.."
+
+token_file="${MPV_RELOAD_GH_TOKEN_FILE:-$HOME/.config/mpv-reload/gh-token}"
+if [ -r "$token_file" ]; then
+  GH_TOKEN="$(cat "$token_file")"
+  export GH_TOKEN
+elif [ "${MPV_RELOAD_ALLOW_BROAD_TOKEN:-}" = "1" ]; then
+  echo "claude-safe: WARNING: using your normal gh login, which can reach every repository you can." >&2
+else
+  cat >&2 <<MSG
+claude-safe: no repository-scoped GitHub token at $token_file.
+
+Create a fine-grained token at https://github.com/settings/personal-access-tokens/new
+  - repository access: only 4e6/mpv-reload
+  - permissions: Contents, Issues, Pull requests (read and write); nothing else
+and save it:  mkdir -p ~/.config/mpv-reload && umask 077 && cat > $token_file
+(Or, knowing the risk, run once with MPV_RELOAD_ALLOW_BROAD_TOKEN=1.)
+MSG
+  exit 1
+fi
+
+# Read is denied for the usual credential locations too: an injected instruction could
+# otherwise copy a secret into a field the agent reads. The deny list is a prefix match
+# and cannot cover every way to run a program; manual mode (below) is what asks first.
+deny="WebFetch,WebSearch,Bash(curl:*),Bash(wget:*),Bash(ssh:*),Bash(scp:*),Bash(gcloud:*),Bash(gh api:*)"
+deny="$deny,Read(**/.env*),Read(~/.ssh/**),Read(~/.config/**),Read(~/.aws/**),Read(~/.gnupg/**),Read(~/.netrc)"
+deny="$deny,Read(~/.claude/**),Read(~/.npmrc),Read(~/.docker/**),Read(~/.kube/**),Read(~/.git-credentials)"
+deny="$deny,Read(~/.zsh_history),Read(~/.bash_history),Read(~/.pypirc)"
+
+# These switch intake.py to fixtures, another claude command, or text output for the
+# OWNER running it by hand. A copy exported in your shell must not reach the session.
+unset MPV_RELOAD_INTAKE_FIXTURE MPV_RELOAD_INTAKE_SHOW_TEXT MPV_RELOAD_CLAUDE
+
+# The prompt goes first so the variadic --disallowedTools cannot swallow it.
+# --strict-mcp-config: no MCP connectors (mail, drive, ...) in this session.
+exec claude "$@" --permission-mode manual --strict-mcp-config --disallowedTools "$deny"
