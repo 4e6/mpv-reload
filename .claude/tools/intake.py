@@ -10,13 +10,15 @@
    is intake_prompt.md.
 3. Its reply is parsed and checked by validate_intake. The raw reply is never
    printed, whatever happens.
-4. Standard output is only: trusted metadata from fetch_item, then the validated,
-   normalized fields as one JSON line ("INTAKE=..."). On any problem it prints
-   "INTAKE_FAILED=<fixed reason>" and exits 1.
+4. Standard output is only: trusted metadata from fetch_item, a link to the item, and
+   the validated fields that are enums, booleans, numbers or a version ("INTAKE=...").
+   The two free-text fields the model also writes (summary, injection_reason) are NOT
+   printed: the privileged agent that runs this never sees a sentence the model wrote,
+   so a compromised reply can choose only among enum and boolean values. The owner can
+   read the item at the link, or run this by hand with MPV_RELOAD_INTAKE_SHOW_TEXT=1 to
+   see the two text fields. On any problem it prints "INTAKE_FAILED=<fixed reason>".
 
-The privileged agent that runs this sees nothing the quarantined model wrote except
-fields that passed the schema. A compromised reply can still choose values inside the
-schema (an enum, a version number, a 300-character ASCII sentence); nothing more.
+    python3 .claude/tools/intake.py --list      # untriaged items: number, login, date
 
 Tests can set MPV_RELOAD_INTAKE_FIXTURE=<item json file> to skip GitHub, and
 MPV_RELOAD_CLAUDE to replace the claude command.
@@ -38,6 +40,8 @@ import validate_intake  # noqa: E402
 PROMPT_FILE = os.path.join(HERE, "intake_prompt.md")
 TIMEOUT = 180
 MAX_REPLY = 6000
+TEXT_FIELDS = ("summary", "injection_reason")
+DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z")
 FENCE = re.compile(r"\A```(?:json)?\n(.*)\n```\Z", re.S)
 
 
@@ -57,6 +61,9 @@ def run_model(item, command=None):
     try:
         argv = (command or claude_command()) + [
             "-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+            # project-only settings from an empty cwd: none of the owner's user-level
+            # hooks, plugins or skills load, and none of them is handed the item text.
+            "--setting-sources", "project", "--disable-slash-commands",
             "--model", "sonnet", "--output-format", "json",
             "--system-prompt", system_prompt,
         ]
@@ -100,24 +107,47 @@ def parse_reply(reply):
         raise Failed("the intake reply broke the schema: %s" % e)
 
 
+def list_untriaged():
+    """Open issues and PRs without the `triaged` label: numbers, logins and dates only."""
+    rows = []
+    for kind in ("issue", "pr"):
+        found = fetch_item.run_gh([kind, "list", "-R", fetch_item.REPO, "--state", "open",
+                                   "--search", "-label:triaged", "--limit", "50",
+                                   "--json", "number,author,createdAt"])
+        for row in found:
+            login = (row.get("author") or {}).get("login") or ""
+            created = row.get("createdAt") or ""
+            rows.append((created if DATE.fullmatch(created) else "?", kind, int(row["number"]),
+                         login if fetch_item.LOGIN.fullmatch(login) else "?"))
+    return sorted(rows, reverse=True)
+
+
 def main(argv):
+    if argv == ["--list"]:
+        for created, kind, number, login in list_untriaged():
+            print("%s\t%s\t#%d\t%s" % (kind, created, number, login))
+        return 0
     number = fetch_item.parse_number(argv)
     fixture = os.environ.get("MPV_RELOAD_INTAKE_FIXTURE")
     if fixture:
         with open(fixture) as f:
             item = json.load(f)
-        kind = item.get("kind", "issue")
-        lines = ["KIND=" + str(kind)[:5].replace("\n", " "), "NUMBER=%d" % number, "FIXTURE=yes"]
+        lines = ["KIND=" + ("pr" if item.get("kind") == "pr" else "issue"), "NUMBER=%d" % number, "FIXTURE=yes"]
     else:
         raw, kind = fetch_item.fetch(number)
         item, lines = fetch_item.normalize(raw, kind)
     print("\n".join(lines))
+    print("URL=https://github.com/%s/issues/%d" % (fetch_item.REPO, number))
     try:
         fields = parse_reply(run_model(item))
     except Failed as e:
         print("INTAKE_FAILED=%s" % e)
         return 1
-    print("INTAKE=" + json.dumps(fields, sort_keys=True))
+    shown = {k: v for k, v in fields.items() if k not in TEXT_FIELDS}
+    print("INTAKE=" + json.dumps(shown, sort_keys=True))
+    if os.environ.get("MPV_RELOAD_INTAKE_SHOW_TEXT") == "1":   # the owner, by hand
+        for name in TEXT_FIELDS:
+            print("%s=%s" % (name.upper(), fields[name]))
     return 0
 
 
