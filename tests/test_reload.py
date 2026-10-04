@@ -70,6 +70,9 @@ class ReloadCase(unittest.TestCase):
         self.assertGreaterEqual(
             position, expected - 1,
             "playback restarted at %.1fs instead of resuming at %.1fs" % (position, expected))
+        self.assertLessEqual(
+            position, expected + 3,
+            "playback resumed at %.1fs, too far after %.1fs" % (position, expected))
 
 
 class ReloadTests(ReloadCase):
@@ -104,7 +107,8 @@ class ReloadTests(ReloadCase):
         server.stall_at, server.stalls_left = 60000, 1
         mpv = self.start(script_opts)
         mpv.cmd("loadfile", server.url())
-        self.wait_loaded(mpv, 2)
+        wait_until(lambda: mpv.count("file-loaded") >= 2, "an automatic reload",
+                   timeout=30, mpv=mpv)
         self.assertEqual(server.stalls_hit, 1)
         resume = reload_position(mpv)
         self.assertIsNotNone(resume, "expected a 'reloading video from' log line")
@@ -113,8 +117,11 @@ class ReloadTests(ReloadCase):
 
     def test_stalled_download_reloads_via_demuxer_cache(self):
         # Only the demuxer-cache path may trigger the reload: the paused-for-cache
-        # timer is pushed out of reach so a slow runner cannot fall back to it.
-        mpv = self.stalled_reload(dict(FAST, paused_for_cache_timer_timeout=30))
+        # timer is pushed out of reach so a slow runner cannot fall back to it, and
+        # the demuxer timeout is short so it is "stuck" well before the buffer runs
+        # dry (the script only checks that state when playback pauses for cache).
+        mpv = self.stalled_reload(dict(FAST, demuxer_cache_timer_timeout=1,
+                                       paused_for_cache_timer_timeout=30))
         self.assertIn("demuxer cache has no progress", mpv.log())
 
     def test_stalled_download_reloads_via_paused_for_cache_timer(self):
