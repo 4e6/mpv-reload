@@ -1,8 +1,26 @@
 # Lint, and run the tests against real mpv builds.
 #
-# Three mpv versions are required: 0.37 (the last one with the old `loadfile`
-# syntax), 0.40 (new syntax, Debian stable) and whatever is the latest release.
-# Run it by hand (workflow_dispatch) after a new mpv release to re-test "latest".
+# What we support is not a list of mpv versions but a list of RELEASES that people
+# actually run, each with the mpv it ships:
+#
+#   - the supported Ubuntu LTS release   (24.04 ships mpv 0.37, the last one with
+#                                          the old `loadfile` syntax)
+#   - the current Debian stable release  (13 "trixie" ships mpv 0.40)
+#   - the newest mpv, through Arch Linux (a rolling release)
+#
+# The mpv numbers in the job names are only what those releases ship today. Keep
+# the cells in step with the releases, not with mpv:
+#
+#   - A new Ubuntu LTS or Debian stable comes out, or one reaches end of support:
+#     add or replace its cell (container or runner image, install line, job name).
+#     Job names are the required status checks in the branch protection on
+#     `master` and are matched exactly, so change them there as well.
+#   - Arch needs no edit: its image is rolling and always has the newest mpv. After
+#     a new mpv release, run this workflow by hand (workflow_dispatch) to re-test
+#     "latest". The web-watcher alert for new mpv releases says when.
+#   - If a new mpv release changes something the script relies on (0.38 did, for
+#     `loadfile`), the "latest" cell fails first. Fix main.lua so the older cells
+#     keep passing.
 #
 # No secrets and read-only permissions: fork pull requests run this too.
 name: ci
@@ -39,6 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One cell per supported release; see the top of this file before changing.
         include:
           - name: "0.37 (Ubuntu 24.04)"
             container: ""
