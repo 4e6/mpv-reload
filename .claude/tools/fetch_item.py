@@ -39,8 +39,11 @@ def parse_number(argv):
 
 def run_gh(args):
     """Run gh and return parsed JSON; on failure exit with gh's own message."""
-    out = subprocess.run(["gh"] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         universal_newlines=True)
+    try:
+        out = subprocess.run(["gh"] + args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             universal_newlines=True)
+    except OSError as e:
+        raise SystemExit("cannot run gh (is the GitHub CLI installed?): %s" % e.strerror)
     if out.returncode != 0:
         message = (out.stderr.strip().splitlines() or ["unknown error"])[0][:200]
         raise SystemExit("gh %s failed: %s" % (" ".join(args[:2]), message))

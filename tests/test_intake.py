@@ -152,11 +152,29 @@ class FetchItemTests(unittest.TestCase):
         self.assertEqual(calls[1][:2], ["pr", "view"])
         self.assertNotIn("authorAssociation", calls[1][-1])  # gh does not offer it
 
+    def run_gh_with(self, fake_run):
+        original, fetch_item.subprocess.run = fetch_item.subprocess.run, fake_run
+        try:
+            with self.assertRaises(SystemExit) as caught:
+                fetch_item.run_gh(["issue", "view", "1"])
+        finally:
+            fetch_item.subprocess.run = original
+        return str(caught.exception)
+
     def test_gh_failure_is_reported_not_called_missing(self):
-        with self.assertRaises(SystemExit) as caught:
-            fetch_item.run_gh(["issue", "view", "999999999", "-R", "4e6/does-not-exist-xyz"])
-        self.assertIn("failed", str(caught.exception))
-        self.assertNotIn("no issue or PR", str(caught.exception))
+        class Failed:
+            returncode, stdout, stderr = 1, "", "GraphQL: Could not resolve to an Issue\nsecond line"
+
+        message = self.run_gh_with(lambda *a, **k: Failed())
+        self.assertIn("Could not resolve to an Issue", message)
+        self.assertNotIn("second line", message)
+        self.assertNotIn("no issue or PR", message)
+
+    def test_missing_gh_is_a_clear_message_not_a_traceback(self):
+        def missing(*a, **k):
+            raise FileNotFoundError(2, "No such file or directory")
+
+        self.assertIn("GitHub CLI", self.run_gh_with(missing))
 
     def test_long_text_is_truncated(self):
         raw = {"number": 1, "title": "t", "body": "x" * 50000, "author": {"login": "a"},
