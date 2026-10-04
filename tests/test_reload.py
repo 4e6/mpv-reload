@@ -47,12 +47,29 @@ class ReloadCase(unittest.TestCase):
             wait_until(lambda: (mpv.get("time-pos") or 0) >= seek - 0.5,
                        "the seek to %ss" % seek, mpv=mpv)
 
-    def settle(self, mpv, loads, at_least):
-        """Wait for `loads` file-loaded events and playback past `at_least`."""
+    def reload_and_wait(self, mpv):
+        """Trigger a manual reload; return once the script has handled it and
+        mpv has loaded the file again (not merely once the key was sent)."""
+        loads = mpv.count("file-loaded")
+        reloads = mpv.log_count("reloading")
+        mpv.reload()
+        wait_until(lambda: mpv.log_count("reloading") > reloads,
+                   "the script to handle the reload", mpv=mpv)
+        self.wait_loaded(mpv, loads + 1)
+
+    def wait_loaded(self, mpv, loads):
         wait_until(lambda: mpv.count("file-loaded") >= loads,
                    "file-loaded #%d" % loads, mpv=mpv)
-        wait_until(lambda: (mpv.get("time-pos") or 0) >= at_least,
-                   "playback to reach %ss after reload" % at_least, mpv=mpv)
+
+    def assert_resumed_at(self, mpv, expected):
+        """Right after a reload, playback must be near `expected` seconds, not
+        back at 0. Checked immediately, before playback could catch up from 0
+        to the expected position and hide a lost start offset."""
+        self.assertGreater(expected, 2, "position too small to tell a resume from a restart")
+        position = wait_until(lambda: mpv.get("time-pos"), "a playback position", mpv=mpv)
+        self.assertGreaterEqual(
+            position, expected - 1,
+            "playback restarted at %.1fs instead of resuming at %.1fs" % (position, expected))
 
 
 class ReloadTests(ReloadCase):
@@ -61,52 +78,48 @@ class ReloadTests(ReloadCase):
         mpv = self.start()
         self.play(mpv, server.url(), seek=20)
         before = mpv.get("time-pos")
-        mpv.reload()
-        self.settle(mpv, loads=2, at_least=before - 1)
+        self.reload_and_wait(mpv)
+        self.assert_resumed_at(mpv, before)
         self.assertEqual(mpv.log_count("reloading video from"), 1)
         self.assertAlmostEqual(reload_position(mpv), before, delta=2)
 
     def test_loadfile_syntax_fallback(self):
         # mpv 0.38 added an `index` argument to loadfile. The script tries the
-        # new form first and falls back to the old one on older mpv.
+        # new form first and falls back to the old one on older mpv. Either way
+        # the reload must still resume where it was.
         server = self.serve()
         mpv = self.start()
         self.play(mpv, server.url(), seek=10)
-        mpv.reload()
-        self.settle(mpv, loads=2, at_least=9)
+        before = mpv.get("time-pos")
+        self.reload_and_wait(mpv)
+        self.assert_resumed_at(mpv, before)
         used_fallback = "old loadfile syntax detected" in mpv.log()
         if mpvtest.mpv_version() < (0, 38):
             self.assertTrue(used_fallback, "mpv < 0.38 should use the old loadfile syntax")
         else:
             self.assertFalse(used_fallback, "mpv >= 0.38 should accept the new loadfile syntax")
 
-    def test_stalled_download_reloads_via_demuxer_cache(self):
+    def stalled_reload(self, script_opts):
         server = self.serve(rate=0.02)
         server.stall_at, server.stalls_left = 60000, 1
-        mpv = self.start(FAST)
+        mpv = self.start(script_opts)
         mpv.cmd("loadfile", server.url())
-        wait_until(lambda: mpv.count("file-loaded") >= 2, "an automatic reload",
-                   timeout=30, mpv=mpv)
+        self.wait_loaded(mpv, 2)
         self.assertEqual(server.stalls_hit, 1)
-        self.assertIn("demuxer cache has no progress", mpv.log())
         resume = reload_position(mpv)
         self.assertIsNotNone(resume, "expected a 'reloading video from' log line")
-        wait_until(lambda: (mpv.get("time-pos") or 0) >= resume + 1,
-                   "playback to continue past the reload point", mpv=mpv)
+        self.assert_resumed_at(mpv, resume)
+        return mpv
+
+    def test_stalled_download_reloads_via_demuxer_cache(self):
+        # Only the demuxer-cache path may trigger the reload: the paused-for-cache
+        # timer is pushed out of reach so a slow runner cannot fall back to it.
+        mpv = self.stalled_reload(dict(FAST, paused_for_cache_timer_timeout=30))
+        self.assertIn("demuxer cache has no progress", mpv.log())
 
     def test_stalled_download_reloads_via_paused_for_cache_timer(self):
-        server = self.serve(rate=0.02)
-        server.stall_at, server.stalls_left = 60000, 1
-        mpv = self.start(dict(FAST, demuxer_cache_timer_enabled="no"))
-        mpv.cmd("loadfile", server.url())
-        wait_until(lambda: mpv.count("file-loaded") >= 2, "an automatic reload",
-                   timeout=30, mpv=mpv)
-        self.assertEqual(server.stalls_hit, 1)
+        mpv = self.stalled_reload(dict(FAST, demuxer_cache_timer_enabled="no"))
         self.assertNotIn("demuxer cache has no progress", mpv.log())
-        resume = reload_position(mpv)
-        self.assertIsNotNone(resume)
-        wait_until(lambda: (mpv.get("time-pos") or 0) >= resume + 1,
-                   "playback to continue past the reload point", mpv=mpv)
 
     def test_reload_at_eof_checks_for_more_content(self):
         server = MediaServer(media("short.mkv", seconds=5))
@@ -140,24 +153,25 @@ class PlaylistTests(ReloadCase):
         return [mpv.get("playlist/%d/title" % i)
                 for i in range(mpv.get("playlist/count") or 0)]
 
+    def reload_playlist(self, mpv):
+        """Reload, then wait until the script has put the whole playlist back."""
+        self.reload_and_wait(mpv)
+        wait_until(lambda: self.names(mpv) == ["m1.mkv", "m2.mkv", "m3.mkv"],
+                   "the playlist to be rebuilt in order", mpv=mpv)
+
     def test_playlist_order_and_position_survive_reload(self):
         mpv = self.start_playlist()
-        mpv.reload()
-        wait_until(lambda: mpv.count("file-loaded") >= 2 and mpv.get("playlist/count") == 3,
-                   "the playlist to be rebuilt", mpv=mpv)
-        wait_until(lambda: self.names(mpv) == ["m1.mkv", "m2.mkv", "m3.mkv"],
-                   "the playlist order to be restored", mpv=mpv)
+        before = mpv.get("time-pos")
+        self.reload_playlist(mpv)
         self.assertEqual(mpv.get("playlist-pos"), 1)
-        self.settle(mpv, loads=2, at_least=14)
+        self.assert_resumed_at(mpv, before)
 
     def test_playlist_titles_survive_reload(self):
         # Issue #23: entries come back without their #EXTINF titles.
         mpv = self.start_playlist()
         expected = ["Alpha Channel", "Beta Channel", "Gamma Channel"]
         self.assertEqual(self.titles(mpv), expected)
-        mpv.reload()
-        wait_until(lambda: mpv.count("file-loaded") >= 2 and mpv.get("playlist/count") == 3,
-                   "the playlist to be rebuilt", mpv=mpv)
+        self.reload_playlist(mpv)
         self.assertEqual(self.titles(mpv), expected, "playlist titles lost after reload (#23)")
 
 
@@ -179,9 +193,6 @@ class RaceTests(ReloadCase):
         server.gate.set()
         wait_until(lambda: mpv.get("duration") and mpv.get("time-pos") is not None,
                    "the file to finish loading", mpv=mpv)
-        # Let playback run briefly so a restart from 0 cannot be mistaken for
-        # "not there yet".
-        wait_until(lambda: (mpv.get("time-pos") or 0) >= 1, "playback to start", mpv=mpv)
         self.assertGreaterEqual(
             mpv.get("time-pos"), position - 1,
             "position lost after second reload during a reload (#21)")

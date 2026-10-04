@@ -180,7 +180,9 @@ class Mpv:
     """One headless mpv with the script under test, driven over IPC."""
 
     def __init__(self, script_opts=None, args=()):
-        self.dir = tempfile.mkdtemp(prefix="mpvtest-")
+        # Unix socket paths are limited to ~104 bytes; macOS $TMPDIR is long.
+        base = tempfile.gettempdir()
+        self.dir = tempfile.mkdtemp(prefix="mpvtest-", dir="/tmp" if len(base) > 40 else base)
         script_dir = os.path.join(self.dir, SCRIPT_NAME)
         os.makedirs(script_dir)
         shutil.copy(SCRIPT, os.path.join(script_dir, "main.lua"))
@@ -190,6 +192,7 @@ class Mpv:
                         for k, v in (script_opts or {}).items())
         cmd = MPV + [
             "--no-config", "--load-scripts=no", "--ytdl=no",
+            "--osc=no", "--load-stats-overlay=no", "--load-console=no",
             "--vo=null", "--ao=null", "--idle=yes", "--force-window=no",
             "--no-terminal", "--input-ipc-server=" + self.sock_path,
             "--log-file=" + self.log_path,
@@ -202,19 +205,19 @@ class Mpv:
         self._resp = {}
         self._rid = 0
         self._lock = threading.Lock()
-        deadline = time.time() + 10
+        deadline = time.monotonic() + 10
         while not os.path.exists(self.sock_path):
-            if time.time() > deadline or self.proc.poll() is not None:
+            if time.monotonic() > deadline or self.proc.poll() is not None:
                 raise RuntimeError("mpv did not create its IPC socket\n" + self.log())
             time.sleep(0.05)
         self._sock = socket.socket(socket.AF_UNIX)
         self._sock.connect(self.sock_path)
-        self._file = self._sock.makefile("rw")
+        self._reader_file = self._sock.makefile("r")
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self):
         try:
-            for line in self._file:
+            for line in self._reader_file:
                 msg = json.loads(line)
                 with self._lock:
                     if "event" in msg:
@@ -224,14 +227,18 @@ class Mpv:
         except (ValueError, OSError):
             pass
 
-    def cmd(self, *args):
+    def _send(self, args):
         with self._lock:
             self._rid += 1
             rid = self._rid
-        self._file.write(json.dumps({"command": list(args), "request_id": rid}) + "\n")
-        self._file.flush()
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        line = json.dumps({"command": list(args), "request_id": rid}) + "\n"
+        self._sock.sendall(line.encode())
+        return rid
+
+    def cmd(self, *args):
+        rid = self._send(args)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
             with self._lock:
                 if rid in self._resp:
                     return self._resp.pop(rid)
@@ -266,20 +273,22 @@ class Mpv:
 
     def close(self):
         try:
-            self.cmd("quit")
-        except Exception:
+            self._send(["quit"])  # mpv may exit before it replies
+        except OSError:
             pass
         try:
             self.proc.wait(5)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait()
+        self._sock.close()
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
 def wait_until(cond, what, timeout=15, mpv=None):
     """Poll `cond` until truthy; a timeout is an AssertionError with the mpv log."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         value = cond()
         if value:
             return value

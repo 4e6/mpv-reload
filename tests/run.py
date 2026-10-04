@@ -34,7 +34,11 @@ def expected_failure(test_id, failure_text, cell):
         return False
     if "*" not in row["cells"] and cell not in row["cells"]:
         return False
-    return "AssertionError" in failure_text and row["message"] in failure_text
+    # Only the final exception counts: the traceback above it quotes source
+    # lines, which contain the message text even when the failure is something
+    # else (for example an IPC error raised while evaluating the arguments).
+    marker = failure_text.rfind("\nAssertionError")
+    return marker != -1 and row["message"] in failure_text[marker:]
 
 
 def listed_for(test_id, cell):
