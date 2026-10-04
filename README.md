@@ -28,10 +28,18 @@ For configuration example you can also check
 
 ## Supported mpv versions
 
-mpv 0.37 and newer. CI runs the test suite on 0.37 (Ubuntu 24.04), 0.40
-(Debian 13) and the latest release. mpv 0.38 added an `index` argument to
-`loadfile`; the script uses the new form and falls back to the old one, so both
-sides are tested. Older versions may work but are not tested.
+The script is supported on the mpv that these releases ship, and CI runs the
+test suite on each of them:
+
+- the current Ubuntu LTS (24.04 ships mpv 0.37)
+- the current Debian stable (13 ships mpv 0.40)
+- the latest mpv release, through Arch Linux
+
+So today that means mpv 0.37 and newer. The floor follows the oldest supported
+distro release, not a fixed number, and will move when that release reaches end
+of life. mpv 0.38 added an `index` argument to `loadfile`; the script uses the
+new form and falls back to the old one, so both sides are tested. Other
+versions may work but are not tested.
 
 ## Settings
 
