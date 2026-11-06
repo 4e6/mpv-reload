@@ -13,8 +13,11 @@ python3 tests/run.py -k stall   # a subset
 
 Tests drive a real headless mpv through its IPC socket against a local HTTP server that
 can stall or hold requests (`tests/mpvtest.py`). CI runs luacheck and the same tests on
-mpv 0.37, 0.40 and the latest release, so a change must hold on both sides of the mpv 0.38
-`loadfile` change. Run the suite locally before pushing.
+the newest Ubuntu LTS, Debian stable and Arch Linux (latest mpv), as floating container
+images (see `ci.yml`); a weekly run triggered from outside this repo re-tests them. Pre-0.38
+mpv is no longer in CI, so the old `loadfile` fallback is not exercised there: a change that
+touches that code must be checked by hand against an older mpv (0.37 or earlier) if you have
+one, and flagged in the PR if you could not. Run the suite locally before pushing.
 
 ## Fixing a bug
 

@@ -8,13 +8,20 @@
 #   - the newest mpv, through Arch Linux (a rolling release, archlinux:latest)
 #
 # Each cell is a floating container tag, so none needs an edit when a release
-# lands. A weekly scheduled run (Monday 06:32 UTC) re-tests every cell, so a distro
-# release, or a new mpv release through Arch, that changes what a tag resolves to
-# is caught within a week. A failed scheduled run is meant to alert the owner
-# through a watch outside this repo. Scheduled runs only run on the default branch,
-# and GitHub disables them after 60 days without repository activity, so a silent
-# week may mean the schedule was switched off: re-enable it in the Actions tab.
-# workflow_dispatch still allows a re-test by hand.
+# lands. A weekly run of this workflow on master, triggered from outside this repo,
+# re-tests every cell, so a distro release, or a new mpv release through Arch, that
+# changes what a tag resolves to is caught within a week; failures of those runs
+# are watched outside this repo too. workflow_dispatch also allows a re-test by
+# hand:
+#   gh workflow run ci.yml -R 4e6/mpv-reload
+# A manual dispatch shares a concurrency group with that weekly run and cancels it
+# if the two overlap, so wait for the weekly run to finish first.
+#
+# This workflow has no `schedule:` ON PURPOSE. In a public repo GitHub disables a
+# workflow that has a schedule after 60 days without repository activity, and a
+# disabled workflow also stops its push and pull_request runs, which would leave
+# every pull request unmergeable through the required checks. Do not add a
+# `schedule:` to this workflow.
 #
 # Job names are the required status checks in the branch protection on `master`
 # and are matched exactly: renaming a cell means updating protection too.
@@ -29,8 +36,6 @@
 name: ci
 
 on:
-  schedule:
-    - cron: '32 6 * * 1'
   push:
     branches: [master]
   pull_request:
@@ -41,9 +46,10 @@ permissions:
   contents: read
 
 concurrency:
-  # The event name keeps the weekly scheduled run (same ref as a push to master)
-  # from being cancelled by a push: a cancelled run is not a failed one, so a
-  # failure watch would never see it.
+  # The event name keeps the weekly dispatched run on master (same ref as a push
+  # to master) from being cancelled by a push: a cancelled run is not a failed one,
+  # so a failure there would go unseen.
+  # Pull requests still cancel their own superseded runs.
   group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
