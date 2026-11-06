@@ -39,7 +39,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The event name keeps the weekly scheduled run (same ref as a push to master)
+  # from being cancelled by a push: a cancelled run is not a failed one, so a
+  # failure watch would never see it.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
