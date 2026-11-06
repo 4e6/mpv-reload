@@ -8,10 +8,13 @@
 #   - the newest mpv, through Arch Linux (a rolling release, archlinux:latest)
 #
 # Each cell is a floating container tag, so none needs an edit when a release
-# lands. There is no `schedule:` trigger, so a tag that moves shows up on the next
-# push or PR, not as a timely alert. Run this workflow by hand (workflow_dispatch)
-# after a distro release or a new mpv release to re-test; the web-watcher alert
-# announces new mpv releases.
+# lands. A weekly scheduled run (Monday 06:32 UTC) re-tests every cell, so a distro
+# release, or a new mpv release through Arch, that changes what a tag resolves to
+# is caught within a week. A failed scheduled run is meant to alert the owner
+# through a watch outside this repo. Scheduled runs only run on the default branch,
+# and GitHub disables them after 60 days without repository activity, so a silent
+# week may mean the schedule was switched off: re-enable it in the Actions tab.
+# workflow_dispatch still allows a re-test by hand.
 #
 # Job names are the required status checks in the branch protection on `master`
 # and are matched exactly: renaming a cell means updating protection too.
@@ -26,6 +29,8 @@
 name: ci
 
 on:
+  schedule:
+    - cron: '32 6 * * 1'
   push:
     branches: [master]
   pull_request:
@@ -36,7 +41,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # The event name keeps the weekly scheduled run (same ref as a push to master)
+  # from being cancelled by a push: a cancelled run is not a failed one, so a
+  # failure watch would never see it.
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
