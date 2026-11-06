@@ -8,10 +8,11 @@
 #   - the newest mpv, through Arch Linux (a rolling release, archlinux:latest)
 #
 # Each cell is a floating container tag, so none needs an edit when a release
-# lands. There is no `schedule:` trigger, so a tag that moves shows up on the next
-# push or PR, not as a timely alert. Run this workflow by hand (workflow_dispatch)
-# after a distro release or a new mpv release to re-test; the web-watcher alert
-# announces new mpv releases.
+# lands. A weekly scheduled run (Monday 06:00 UTC) re-tests the floating tags and
+# Arch, so a distro or mpv release that changes what they resolve to is caught
+# within a week. Scheduled runs only run on the default branch. A failing
+# scheduled run is watched from outside: the owner watches failed `schedule` runs
+# of this workflow. workflow_dispatch still allows a re-test by hand.
 #
 # Job names are the required status checks in the branch protection on `master`
 # and are matched exactly: renaming a cell means updating protection too.
@@ -26,6 +27,8 @@
 name: ci
 
 on:
+  schedule:
+    - cron: '0 6 * * 1'
   push:
     branches: [master]
   pull_request:
